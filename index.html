@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Japanese Ancient Book OCR</title>
+    <style>
+      /* Reset and base styles */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      body {
+        background-color: #f5f7fa;
+        color: #333;
+        line-height: 1.6;
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 30px auto;
+        padding: 20px;
+        background-color: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
+      }
+
+      /* Headings */
+      h1 {
+        text-align: center;
+        font-size: 2rem;
+        margin-bottom: 20px;
+        color: #222;
+      }
+
+      h2 {
+        margin-bottom: 15px;
+        color: #444;
+      }
+
+      /* Upload section */
+      .upload-section {
+        margin-bottom: 30px;
+      }
+
+      .upload-section input[type="file"] {
+        padding: 10px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        cursor: pointer;
+      }
+
+      .upload-section button {
+        padding: 10px 20px;
+        border: none;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      .upload-section button:hover {
+        opacity: 0.9;
+      }
+
+      #process-button {
+        margin-top: 15px;
+        width: 100%;
+        background-color: #4caf50;
+      }
+
+      #process-button:disabled {
+        background-color: #a5d6a7;
+        cursor: not-allowed;
+      }
+
+      /* Drag & Drop hint */
+      .upload-section p {
+        text-align: center;
+        color: #666;
+        margin-top: 10px;
+      }
+
+      /* Thumbnails */
+      .thumbnails-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 15px;
+      }
+
+      .thumbnails-container img {
+        width: 100px;
+        height: 100px;
+        object-fit: cover;
+        border-radius: 6px;
+        border: 2px solid #e0e0e0;
+        transition: transform 0.2s ease;
+      }
+
+      .thumbnails-container img:hover {
+        transform: scale(1.05);
+        border-color: #2196f3;
+      }
+
+      /* Loading */
+      #loading {
+        display: none;
+        text-align: center;
+        margin: 20px 0;
+      }
+
+      #loading-message {
+        margin-bottom: 10px;
+        font-weight: 500;
+      }
+
+      #progress-bar {
+        width: 100%;
+        height: 20px;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+
+      /* Result section */
+      .result-section {
+        margin-top: 30px;
+      }
+
+      .canvas-container {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+      }
+
+      canvas {
+        max-width: 100%;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+      }
+
+      /* Tabs */
+      .tabs {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 15px;
+        gap: 10px;
+      }
+
+      .tab {
+        padding: 10px 20px;
+        background-color: #eee;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      .tab.active {
+        background-color: #2196f3;
+        color: #fff;
+      }
+
+      /* Tab content */
+      .tab-content {
+        display: none;
+      }
+
+      .tab-content.active {
+        display: block;
+      }
+
+      .result-container {
+        position: relative;
+      }
+
+      .copy-button {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        padding: 5px 10px;
+        font-size: 0.9rem;
+        border: none;
+        background-color: #4caf50;
+        color: #fff;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      .copy-button:hover {
+        background-color: #45a049;
+      }
+
+      .copy-feedback {
+        display: none;
+        position: absolute;
+        top: 35px;
+        right: 5px;
+        font-size: 0.85rem;
+        color: #4caf50;
+      }
+
+      /* Download section */
+      .download-section {
+        background-color: #f1f3f6;
+      }
+
+      .download-section h3 {
+        text-align: center;
+        margin-bottom: 10px;
+      }
+
+      .download-button {
+        padding: 10px 20px;
+        color: #fff;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        transition: opacity 0.3s ease;
+      }
+
+      .download-button:hover {
+        opacity: 0.9;
+      }
+
+      /* Navigation buttons */
+      .nav-button {
+        padding: 8px 15px;
+        border: none;
+        background-color: #2196f3;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: opacity 0.3s ease;
+      }
+
+      .nav-button:disabled {
+        background-color: #b3e5fc;
+        cursor: not-allowed;
+      }
+
+      .nav-button:hover:not(:disabled) {
+        opacity: 0.9;
+      }
+
+      /* Footer */
+      footer {
+        margin-top: 40px;
+        text-align: center;
+        color: #999;
+        font-size: 14px;
+      }
+
+      footer a {
+        color: #2196f3;
+        text-decoration: none;
+      }
+
+      footer a:hover {
+        text-decoration: underline;
+      }
+
+      /* Responsive */
+      @media (max-width: 600px) {
+        .tabs {
+          flex-direction: column;
+          gap: 5px;
+        }
+
+        .upload-section input,
+        .upload-section button {
+          width: 100%;
+        }
+
+        .nav-button {
+          padding: 6px 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Japanese Ancient Book OCR - Lite Weight Version</h1>
+
+      <div class="upload-section">
+        <h2>Upload Images (Multiple Images Allowed)</h2>
+        <div
+          style="
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 10px;
+          "
+        >
+          <input type="file" id="image-upload" accept="image/*" multiple />
+
+          <button id="sample-button" style="background-color: #2196f3">
+            Or use a Example Image
+          </button>
+        </div>
+        <div id="image-preview-container" class="thumbnails-container"></div>
+        <button id="process-button" disabled>Execute OCR Processing</button>
+      </div>
+
+      <div id="loading">
+        <p id="loading-message">Processing</p>
+        <progress id="progress-bar" value="0" max="100"></progress>
+      </div>
+
+      <div class="result-section" style="display: none">
+        <h2>OCR Result</h2>
+
+        <div
+          id="image-selector-container"
+          style="margin-bottom: 20px; text-align: center"
+        >
+          <div
+            style="
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              gap: 10px;
+            "
+          >
+            <button id="prev-image-button" class="nav-button" disabled>
+              &lt; Previous Image
+            </button>
+            <div>
+              <label for="image-selector"> Choose an image: </label>
+              <select id="image-selector"></select>
+            </div>
+            <button id="next-image-button" class="nav-button" disabled>
+              Next Image &gt;
+            </button>
+          </div>
+        </div>
+
+        <div class="canvas-container">
+          <canvas id="result-canvas"></canvas>
+        </div>
+
+        <div class="tabs">
+          <div class="tab active" data-tab="text">Text</div>
+          <div class="tab" data-tab="xml">XML</div>
+          <div class="tab" data-tab="json">JSON</div>
+        </div>
+
+        <div class="tab-content active" id="text-content">
+          <div class="result-container">
+            <h3>OCR Result</h3>
+            <button class="copy-button" data-target="text-result">Copy</button>
+            <div class="copy-feedback">Copied!</div>
+            <pre id="text-result"></pre>
+
+            <!-- 新增翻譯結果區塊 -->
+            <h3 style="margin-top: 20px">Punctuated Text</h3>
+            <div id="punctuated-text-result"></div>
+            <h3 style="margin-top: 20px">Translated Text</h3>
+            <div id="translated-text-result"></div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="xml-content">
+          <div class="result-container">
+            <button class="copy-button" data-target="xml-result">Copy</button>
+            <div class="copy-feedback">Copied!</div>
+            <pre id="xml-result"></pre>
+          </div>
+        </div>
+
+        <div class="tab-content" id="json-content">
+          <div class="result-container">
+            <button class="copy-button" data-target="json-result">Copy</button>
+            <div class="copy-feedback">Copied!</div>
+            <pre id="json-result"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="download-section"
+        style="
+          margin-top: 30px;
+          padding: 20px;
+          border: 1px solid #ccc;
+          border-radius: 5px;
+          display: none;
+        "
+      >
+        <h3>Download the integrated results of multiple pictures</h3>
+        <p>
+          If multiple images have been processed, you can download the
+          consolidated file.
+        </p>
+        <div
+          style="
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+          "
+        >
+          <button
+            id="download-text-button"
+            class="download-button"
+            style="background-color: #ff9800"
+          >
+            Download Text
+          </button>
+          <button
+            id="download-xml-button"
+            class="download-button"
+            style="background-color: #2196f3"
+          >
+            Download XML
+          </button>
+          <button
+            id="download-json-button"
+            class="download-button"
+            style="background-color: #9c27b0"
+          >
+            Download JSON
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <footer
+      style="
+        margin-top: 30px;
+        text-align: center;
+        padding: 20px;
+        color: #666;
+        font-size: 14px;
+        border-top: 1px solid #eee;
+      "
+    >
+      <p>
+        This website is modified from the original web application developed by
+        桥本雄太（National Museum of Japanese History, Japan，
+        <a
+          href="https://x.com/yuta1984"
+          target="_blank"
+          rel="noopener noreferrer"
+          >@yuta1984</a
+        >）
+      </p>
+      <p>
+        Also, this application uses a web port of
+        <a
+          href="https://github.com/ndl-lab/ndlkotenocr-lite"
+          target="_blank"
+          rel="noopener noreferrer"
+          >NDL OCR-lite</a
+        >
+      </p>
+    </footer>
+
+    <script src="bundle.js"></script>
+  </body>
+</html>
