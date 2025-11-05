@@ -208,12 +208,14 @@ export class NDLKotenOCR {
       console.log("Jiayan punctuated text:", jiayan_text);
       results.punctuatedText = jiayan_text;
       try {
-        let { chunks, translations } = await this.translateTextThroughLLM(
-          jiayan_text
-        );
+        let { chunks, translations, retrievedInfo } =
+          await this.translateTextThroughLLM(jiayan_text);
         let translatedText = translations;
+        let info = retrievedInfo;
         this.updateProgress(90, "Translation completed.");
         results.translatedText = translatedText.join("\n");
+        results.retrievedInfoArray = info;
+        results.retrievedInfo = info.join("\n");
 
         // let rawResult = await this.rag(chunks, translatedText);
         // results.rag = rawResult;
@@ -277,6 +279,7 @@ export class NDLKotenOCR {
     const chunks = this.splitChineseText(text, 60);
     // collect translation results
     let translations = [];
+    let retrievedInfo = [];
     for (let i = 0; i < chunks.length; i++) {
       let chunk = chunks[i];
       // make HTTP POST request to local server 8000
@@ -291,8 +294,9 @@ export class NDLKotenOCR {
       console.log("Original text:", chunk);
       console.log("Translation result:", data);
       translations.push(data.translation);
+      retrievedInfo.push(data.retrieved_info);
     }
-    return { chunks, translations };
+    return { chunks, translations, retrievedInfo };
   }
 
   splitChineseText(text, maxLen = 60) {
@@ -741,7 +745,29 @@ document.addEventListener("DOMContentLoaded", () => {
       "\n"
     );
 
+    let counter = 1;
+    for (let i = 0; i < result.retrievedInfoArray.length; i++) {
+      let info = result.retrievedInfoArray[i][0];
+      console.log("Retrieved info:", info);
+      if (!info) continue;
+      // info is '息: 周代姬姓國，在今河南息縣西南。約在公元前683年左右為楚所滅。'
+      let key = info.split(":")[0];
+      // find the key in punctuatedText
+      let index = punctuatedEl.textContent.indexOf(key);
+      console.log("Key:", key, "Index:", index);
+      if (index !== -1) {
+        // insert a number superscript after the key
+        let superscript = `［${counter}］`;
+        punctuatedEl.textContent =
+          punctuatedEl.textContent.slice(0, index + key.length) +
+          superscript +
+          punctuatedEl.textContent.slice(index + key.length);
+        counter++;
+      }
+    }
+
     let translatedEl = document.getElementById("translated-text-result");
+    let infoEl = document.getElementById("retrieved-info-result");
     if (!translatedEl) {
       translatedEl = document.createElement("pre");
       translatedEl.id = "translated-text-result";
@@ -753,6 +779,15 @@ document.addEventListener("DOMContentLoaded", () => {
       /\\n/g,
       "\n"
     );
+
+    if (!infoEl) {
+      infoEl = document.createElement("pre");
+      infoEl.id = "retrieved-info-result";
+      infoEl.className = "retrieved-info-text";
+      // 在翻譯結果下方插入
+      translatedEl.parentNode.insertBefore(infoEl, translatedEl.nextSibling);
+    }
+    infoEl.textContent = (result.retrievedInfo || "").replace(/\\n/g, "\n");
 
     // let ragEl = document.getElementById("rag-result");
     // if (!ragEl) {
