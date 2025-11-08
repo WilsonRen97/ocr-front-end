@@ -201,38 +201,96 @@ export class NDLKotenOCR {
         text: this.outputGenerator.generateTXT(orderedDetections),
       };
 
+      let data = results.json;
+      let documentHeight = data.document.image.height;
+      let textObjects = data.document.image.text;
+      let below60Counter = 0;
+      for (let i = 0; i < textObjects.length; i++) {
+        let height = textObjects[i].height;
+        if (height < documentHeight * 0.6) {
+          below60Counter++;
+        }
+      }
+      let majorityBelow60 = below60Counter > textObjects.length / 2;
+      console.log("Majority below 60% height:", majorityBelow60);
+
+      if (majorityBelow60) {
+        // 這是資料型圖片，所以需要後端使用 DBSCAN 處理
+        let response = await this.jsonToBackend({ textObjects });
+        console.log("Backend response DBSCAN result:", response);
+        results.clusteredResult = response.data;
+
+        // store the same cluster data together
+        let clusteredTexts = {};
+        for (let item of response.data) {
+          if (!clusteredTexts[item.cluster]) {
+            clusteredTexts[item.cluster] = [];
+          }
+          clusteredTexts[item.cluster].push(item);
+        }
+        results.clusteredTexts = clusteredTexts;
+      }
+
       // 移除片假名、英数字等非漢字字符
       this.updateProgress(70, "Translating text...");
       let cleanText = this.removeNonKanjiCharacters(results.text);
-      let jiayan_text = await this.jiayanPunctuation(cleanText);
-      console.log("Jiayan punctuated text:", jiayan_text);
-      results.punctuatedText = jiayan_text;
-      try {
-        let { chunks, translations, retrievedInfo } =
-          await this.translateTextThroughLLM(jiayan_text);
-        let translatedText = translations;
-        let info = retrievedInfo;
-        this.updateProgress(90, "Translation completed.");
-        results.translatedText = translatedText.join("\n");
-        results.retrievedInfoArray = info;
-        results.retrievedInfo = info.join("\n");
 
-        // let rawResult = await this.rag(chunks, translatedText);
-        // results.rag = rawResult;
-      } catch (error) {
-        console.error("Translation error:", error);
-        this.updateProgress(80, "Translation failed.");
+      // 如果是故事型圖片，則進行翻譯
+      // 如果是資料型圖片，則跳過翻譯步驟
+      if (majorityBelow60) {
+        this.updateProgress(75, "Skipping translation for data-type image.");
+        results.punctuatedText = "";
+        results.translatedText = "";
+        results.retrievedInfoArray = [""];
+        results.retrievedInfo = "";
+      } else {
+        this.updateProgress(
+          75,
+          "Proceeding with translation for story-type image."
+        );
+        let jiayan_text = await this.jiayanPunctuation(cleanText);
+        console.log("Jiayan punctuated text:", jiayan_text);
+        results.punctuatedText = jiayan_text;
+
+        try {
+          let { chunks, translations, retrievedInfo } =
+            await this.translateTextThroughLLM(jiayan_text);
+          let translatedText = translations;
+          let info = retrievedInfo;
+          this.updateProgress(90, "Translation completed.");
+          results.translatedText = translatedText.join("\n");
+          // flatten info array
+          info = info.flat(Infinity);
+          // remove duplicates
+          info = [...new Set(info)];
+          results.retrievedInfoArray = info;
+          results.retrievedInfo = info.join("\n");
+          console.log("Retrieved info:", info);
+          console.log("Translated retrievedInfo:", retrievedInfo);
+        } catch (error) {
+          console.error("Translation error:", error);
+          this.updateProgress(80, "Translation failed.");
+        }
       }
 
       this.updateProgress(100, "Process completed.");
-      // UIの更新を許可するためのマイクロタスク
       await new Promise((resolve) => setTimeout(resolve, 0));
-
       return results;
     } catch (error) {
-      console.error("処理エラー:", error);
-      throw new Error(`画像処理に失敗しました: ${error.message}`);
+      console.error("處理失敗:", error);
+      throw new Error(`Process failed: ${error.message}`);
     }
+  }
+
+  async jsonToBackend(jsonData) {
+    const response = await fetch("http://127.0.0.1:8000/jsonData", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(jsonData),
+    });
+    return response.json();
   }
 
   async rag(classicalTextList, modernTextList) {
@@ -731,7 +789,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const origText = (result.text || "").replace(/\\n/g, "\n");
     textResult.textContent = origText;
 
-    // 翻譯結果の表示（如果沒有 DOM 元素則自動生成）
     let punctuatedEl = document.getElementById("punctuated-text-result");
     if (!punctuatedEl) {
       punctuatedEl = document.createElement("pre");
@@ -768,6 +825,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let translatedEl = document.getElementById("translated-text-result");
     let infoEl = document.getElementById("retrieved-info-result");
+    let clusteredTextsEl = document.getElementById("clustered-texts-result");
     if (!translatedEl) {
       translatedEl = document.createElement("pre");
       translatedEl.id = "translated-text-result";
@@ -787,7 +845,30 @@ document.addEventListener("DOMContentLoaded", () => {
       // 在翻譯結果下方插入
       translatedEl.parentNode.insertBefore(infoEl, translatedEl.nextSibling);
     }
-    infoEl.textContent = (result.retrievedInfo || "").replace(/\\n/g, "\n");
+    const infoLines = (result.retrievedInfo || "")
+      .replace(/\\n/g, "\n")
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line, idx) => `［${idx + 1}］${line}`);
+    infoEl.innerHTML = infoLines.join("<br>");
+
+    if (!clusteredTextsEl) {
+      clusteredTextsEl = document.createElement("pre");
+      clusteredTextsEl.id = "clustered-texts-result";
+      clusteredTextsEl.className = "clustered-texts-text";
+      // 在檢索信息下方插入
+      infoEl.parentNode.insertBefore(clusteredTextsEl, infoEl.nextSibling);
+    }
+    if (result.clusteredTexts) {
+      let clusteredTextLines = [];
+      for (let cluster in result.clusteredTexts) {
+        clusteredTextLines.push(`Cluster: ${cluster}`);
+        for (let item of result.clusteredTexts[cluster]) {
+          clusteredTextLines.push(` - ${item.text}`);
+        }
+      }
+      clusteredTextsEl.innerHTML = clusteredTextLines.join("<br>");
+    }
 
     // let ragEl = document.getElementById("rag-result");
     // if (!ragEl) {
@@ -808,7 +889,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const img = new Image();
     img.onload = function () {
       // 結果の可視化
-      drawResults(resultCanvas, img, result.detections);
+      // drawResults(resultCanvas, img, result.detections);
+      drawResults(
+        resultCanvas,
+        img,
+        result.clusteredResult || result.detections
+      );
     };
     img.src = selectedImages[index].dataUrl;
 
@@ -905,7 +991,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // 結果の可視化関数
   function drawResults(canvas, image, detections) {
     const ctx = canvas.getContext("2d");
     canvas.width = image.naturalWidth;
@@ -914,21 +999,56 @@ document.addEventListener("DOMContentLoaded", () => {
     // 元画像の描画
     ctx.drawImage(image, 0, 0);
 
-    // 検出結果の描画
+    // 定義一組顏色
+    const colors = [
+      "#FF0000", // 紅
+      "#0072E3", // 深藍
+      "#00CC66", // 綠
+      "#FF9900", // 橙
+      "#9900FF", // 紫
+      "#FF00AA", // 粉
+      "#00FF99", // 青
+      "#FFD700", // 金黃
+      "#8B0000", // 暗紅
+      "#00CED1", // 深青
+      "#228B22", // 深綠
+      "#FF4500", // 橘紅
+      "#483D8B", // 靛藍
+      "#FF1493", // 深粉
+      "#00BFFF", // 亮藍
+      "#A0522D", // 棕色
+      "#FFFF00", // 黃
+      "#000000", // 黑
+      "#FFA500", // 亮橙
+      "#40E0D0", // 亮青
+      "#C71585", // 紫紅
+      "#7FFF00", // 亮綠
+      "#B22222", // 深紅
+    ];
+
+    // cluster -1 用灰色
+    const getColor = (cluster) => {
+      if (cluster === -1) return "#888888";
+      return colors[cluster % colors.length];
+    };
+
     detections.forEach((detection, index) => {
-      const [x1, y1, x2, y2] = detection.box;
-
-      // 枠の描画
-      ctx.strokeStyle = "red";
+      const { x, y, width, height, cluster, text } = detection;
+      ctx.strokeStyle = getColor(cluster);
       ctx.lineWidth = 2;
-      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      ctx.strokeRect(x, y, width, height);
 
-      // テキストの描画
-      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-      ctx.fillRect(x1, y1 - 20, 40, 20);
+      // 顯示 cluster 編號
+      ctx.fillStyle = getColor(cluster);
+      ctx.font = "14px Arial";
+      ctx.fillText(`C${cluster}`, x + 5, y + 18);
+
+      // 顯示文字
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.fillRect(x, y - 20, width, 20);
       ctx.fillStyle = "black";
-      ctx.font = "16px Arial";
-      ctx.fillText(`${index + 1}`, x1 + 5, y1 - 5);
+      ctx.font = "12px Arial";
+      ctx.fillText(index, x + 5, y - 5);
     });
   }
 
