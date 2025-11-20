@@ -1,5 +1,6 @@
 import { RTMDet } from "./layout-detector.js";
 import { PARSEQ } from "./text-recognizer.js";
+import { Person, FamilyTree } from "./family-tree.js";
 import {
   ReadingOrderProcessor,
   loadConfig as loadReadingOrderConfig,
@@ -216,19 +217,117 @@ export class NDLKotenOCR {
 
       if (majorityBelow60) {
         // 這是資料型圖片，所以需要後端使用 DBSCAN 處理
-        let response = await this.jsonToBackend({ textObjects });
-        console.log("Backend response DBSCAN result:", response);
-        results.clusteredResult = response.data;
+        // let response = await this.jsonToBackend({ textObjects });
+        // console.log("Backend response DBSCAN result:", response);
+        // results.clusteredResult = response.data;
 
         // store the same cluster data together
-        let clusteredTexts = {};
-        for (let item of response.data) {
-          if (!clusteredTexts[item.cluster]) {
-            clusteredTexts[item.cluster] = [];
+        // let clusteredTexts = {};
+        // for (let item of response.data) {
+        //   if (!clusteredTexts[item.cluster]) {
+        //     clusteredTexts[item.cluster] = [];
+        //   }
+        //   clusteredTexts[item.cluster].push(item);
+        // }
+        // results.clusteredTexts = clusteredTexts;
+
+        // 將圖片送往後端進行 grayscale, canny
+        // console.log(options);
+        if (options.imageDataURL) {
+          console.log("Sending image to backend for processing...");
+          let imageResponse = await this.sendImageToBackend(
+            options.imageDataURL
+          );
+          console.log("Backend image processing result:", imageResponse);
+
+          if (imageResponse.status === "ok") {
+            // imageResponse has horizontal_lines, which is an array of arrays, each array has 4 int x1 y1 x2 y2, representing a line in the image
+            // imageResponse also has vertical_lines, with the same format
+
+            // imageResponse also has boxes, which is an array of arrays, each array has 4 int x1 y1 width height, representing a box in the image
+            let boxes = imageResponse.boxes;
+            let familyTree = new FamilyTree();
+            for (let i = 0; i < boxes.length; i++) {
+              let box = boxes[i];
+              familyTree.addPerson(`Person${i}`, box);
+            }
+
+            // vertical_data is an object with key is vertical line index
+            // and value is an array of arrays, each array has 4 int x1 y1 width height, representing a box in the image
+            // 透過 vertical_data 建立父子關係
+            let vertical_data = imageResponse.vertical_data;
+            for (let key in vertical_data) {
+              let v_boxes = vertical_data[key];
+              if (v_boxes.length > 1) {
+                for (let i = v_boxes.length - 1; i > 0; i--) {
+                  let childBox = v_boxes[i];
+                  let parentBox = v_boxes[i - 1];
+                  const childIndex = boxes.findIndex(
+                    (b) =>
+                      b.length === childBox.length &&
+                      b.every((v, i) => v === childBox[i])
+                  );
+                  let childPerson = familyTree.getPerson(`Person${childIndex}`);
+                  const parentIndex = boxes.findIndex(
+                    (b) =>
+                      b.length === parentBox.length &&
+                      b.every((v, i) => v === parentBox[i])
+                  );
+                  let parentPerson = familyTree.getPerson(
+                    `Person${parentIndex}`
+                  );
+                  if (childPerson && parentPerson) {
+                    console.log(
+                      "setting parent once",
+                      parentPerson.name,
+                      "->",
+                      childPerson.name
+                    );
+                    childPerson.setParent(parentPerson);
+                  }
+                }
+              }
+            }
+            // horizontal_box_connections is also an object with key is horizontal line index
+            // and the value is an array of arrays, each array has 4 int x1 y1 width height, representing a box in the image
+            // 透過 horizontal_box_connections 建立兄弟關係
+            let horizontal_box_connections =
+              imageResponse.horizontal_box_connections;
+            for (let key in horizontal_box_connections) {
+              let h_boxes = horizontal_box_connections[key];
+              if (h_boxes.length > 1) {
+                for (let i = 0; i < h_boxes.length - 1; i++) {
+                  let boxA = h_boxes[i];
+                  let boxB = h_boxes[i + 1];
+                  const indexA = boxes.findIndex(
+                    (b) =>
+                      b.length === boxA.length &&
+                      b.every((v, i) => v === boxA[i])
+                  );
+                  const indexB = boxes.findIndex(
+                    (b) =>
+                      b.length === boxB.length &&
+                      b.every((v, i) => v === boxB[i])
+                  );
+                  let personA = familyTree.getPerson(`Person${indexA}`);
+                  let personB = familyTree.getPerson(`Person${indexB}`);
+                  if (personA && personB) {
+                    console.log(
+                      "adding sibling once",
+                      personA.name,
+                      "<->",
+                      personB.name
+                    );
+                    personA.addSibling(personB);
+                  }
+                }
+              }
+            }
+
+            // 打印家族樹
+            familyTree.printTree();
           }
-          clusteredTexts[item.cluster].push(item);
         }
-        results.clusteredTexts = clusteredTexts;
       }
 
       // 移除片假名、英数字等非漢字字符
@@ -289,6 +388,17 @@ export class NDLKotenOCR {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(jsonData),
+    });
+    return response.json();
+  }
+
+  async sendImageToBackend(dataUrl) {
+    const response = await fetch("http://127.0.0.1:8000/uploadImage", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ image: dataUrl }),
     });
     return response.json();
   }
@@ -437,7 +547,7 @@ export class NDLKotenOCR {
     const outLines = [];
 
     for (const line of lines) {
-      console.log("Processing line:", line);
+      // console.log("Processing line:", line);
       let current = "";
 
       for (const ch of line) {
@@ -825,7 +935,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let translatedEl = document.getElementById("translated-text-result");
     let infoEl = document.getElementById("retrieved-info-result");
-    let clusteredTextsEl = document.getElementById("clustered-texts-result");
+    // let clusteredTextsEl = document.getElementById("clustered-texts-result");
     if (!translatedEl) {
       translatedEl = document.createElement("pre");
       translatedEl.id = "translated-text-result";
@@ -852,23 +962,23 @@ document.addEventListener("DOMContentLoaded", () => {
       .map((line, idx) => `［${idx + 1}］${line}`);
     infoEl.innerHTML = infoLines.join("<br>");
 
-    if (!clusteredTextsEl) {
-      clusteredTextsEl = document.createElement("pre");
-      clusteredTextsEl.id = "clustered-texts-result";
-      clusteredTextsEl.className = "clustered-texts-text";
-      // 在檢索信息下方插入
-      infoEl.parentNode.insertBefore(clusteredTextsEl, infoEl.nextSibling);
-    }
-    if (result.clusteredTexts) {
-      let clusteredTextLines = [];
-      for (let cluster in result.clusteredTexts) {
-        clusteredTextLines.push(`Cluster: ${cluster}`);
-        for (let item of result.clusteredTexts[cluster]) {
-          clusteredTextLines.push(` - ${item.text}`);
-        }
-      }
-      clusteredTextsEl.innerHTML = clusteredTextLines.join("<br>");
-    }
+    // if (!clusteredTextsEl) {
+    //   clusteredTextsEl = document.createElement("pre");
+    //   clusteredTextsEl.id = "clustered-texts-result";
+    //   clusteredTextsEl.className = "clustered-texts-text";
+    //   // 在檢索信息下方插入
+    //   infoEl.parentNode.insertBefore(clusteredTextsEl, infoEl.nextSibling);
+    // }
+    // if (result.clusteredTexts) {
+    //   let clusteredTextLines = [];
+    //   for (let cluster in result.clusteredTexts) {
+    //     clusteredTextLines.push(`Cluster: ${cluster}`);
+    //     for (let item of result.clusteredTexts[cluster]) {
+    //       clusteredTextLines.push(` - ${item.text}`);
+    //     }
+    //   }
+    //   clusteredTextsEl.innerHTML = clusteredTextLines.join("<br>");
+    // }
 
     // let ragEl = document.getElementById("rag-result");
     // if (!ragEl) {
@@ -951,6 +1061,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // 処理実行
         const results = await ocr.process(imageData, {
           imageName: imageInfo.file.name || `image_${i + 1}`,
+          imageDataURL: imageInfo.dataUrl,
         });
 
         // 結果を保存
