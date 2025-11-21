@@ -1,6 +1,7 @@
 import { RTMDet } from "./layout-detector.js";
 import { PARSEQ } from "./text-recognizer.js";
-import { Person, FamilyTree } from "./family-tree.js";
+import { Person, FamilyTree, toD3TreeWithVirtualRoot } from "./family-tree.js";
+import drawFamilyTreeGraph from "./FamilyTreeGraph.js";
 import {
   ReadingOrderProcessor,
   loadConfig as loadReadingOrderConfig,
@@ -326,6 +327,9 @@ export class NDLKotenOCR {
 
             // 打印家族樹
             familyTree.printTree();
+
+            const d3TreeData = toD3TreeWithVirtualRoot(familyTree);
+            drawFamilyTreeGraph(document.getElementById("tree"), d3TreeData);
           }
         }
       }
