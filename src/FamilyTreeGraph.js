@@ -64,9 +64,7 @@ function drawFamilyTreeGraph(container, treeData) {
     .attr("x", (d) => d.x)
     .attr("y", (d) => d.y + 4)
     .attr("text-anchor", "middle")
-    .attr("font-size", "10px") // smaller font
-    .attr("textLength", 80) // wider max space
-    .attr("lengthAdjust", "spacingAndGlyphs")
+    .attr("font-size", "15px")
     .text((d) => d.data.name);
 }
 

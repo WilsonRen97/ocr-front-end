@@ -11,6 +11,8 @@ import {
   loadConfig as loadOutputConfig,
 } from "./output-generator.js";
 
+let majorityBelow60 = false;
+
 /**
  * NDLKotenOCR クラス
  * 古典籍OCRの全体処理を管理するクラス
@@ -213,14 +215,13 @@ export class NDLKotenOCR {
           below60Counter++;
         }
       }
-      let majorityBelow60 = below60Counter > textObjects.length / 2;
+      majorityBelow60 = below60Counter > textObjects.length / 2;
       console.log("Majority below 60% height:", majorityBelow60);
 
       if (majorityBelow60) {
-        // 這是資料型圖片，所以需要後端使用 DBSCAN 處理
-        // let response = await this.jsonToBackend({ textObjects });
-        // console.log("Backend response DBSCAN result:", response);
-        // results.clusteredResult = response.data;
+        // 這是資料型圖片，所以需要特別處理
+        // 另外，不需要在前端顯示OCR結果，因為用不到
+        results.text = "";
 
         // store the same cluster data together
         // let clusteredTexts = {};
@@ -327,6 +328,17 @@ export class NDLKotenOCR {
 
             // 打印家族樹
             familyTree.printTree();
+
+            for (const person of familyTree.getAllPeople()) {
+              const box = person.boundingBox; // [x1, y1, width, height]
+              // 轉成 [x1, y1, x2, y2] 格式
+              const [x1, y1, width, height] = box;
+              const x2 = x1 + width;
+              const y2 = y1 + height;
+              const croppedImage = this.cropImage(imageData, [x1, y1, x2, y2]);
+              const name = await this.textRecognizer.read(croppedImage);
+              person.name = name; // 更新 person 的名字
+            }
 
             const d3TreeData = toD3TreeWithVirtualRoot(familyTree);
             drawFamilyTreeGraph(document.getElementById("tree"), d3TreeData);
